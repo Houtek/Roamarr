@@ -1,0 +1,78 @@
+# Runs the PR preflight gates in GitHub's cloud instead of on the homelab NUC.
+# Lives ONLY on the fork branch `ci-preflight` (never in a PR branch). Push to ci-preflight
+# (or edit REFS below) to run it. Source of truth: ~/projects/various/.scratch/homelab/roamarr/ci/.
+name: pr-preflight
+on:
+  push:
+    branches: [ci-preflight]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # The fixed PR branch must be green; the as-submitted commit must fail (proves the gates bite).
+        include:
+          - ref: i18n-framework
+            expect: pass
+          - ref: preflight-pr11-as-submitted
+            expect: fail
+    steps:
+      - name: Check out the gate scripts
+        uses: actions/checkout@v4
+        with:
+          path: gates
+      - name: Check out the branch under test (full history) and upstream master
+        run: |
+          git clone -q https://github.com/Houtek/Roamarr.git work/branch
+          git -C work/branch checkout -q "${{ matrix.ref }}"
+          git -C work/branch remote add upstream https://github.com/visorcraft/Roamarr.git
+          git -C work/branch fetch -q upstream master
+          git -C work/branch update-ref refs/remotes/origin/master FETCH_HEAD
+          git clone -q https://github.com/visorcraft/Roamarr.git work/master
+      - name: G2 merges cleanly into upstream master
+        run: |
+          # NOT --quiet: git's merge-tree --quiet exits 0 despite conflicts (verified 2026-11-15)
+          if git -C work/branch merge-tree --write-tree --name-only origin/master HEAD >/dev/null; then
+            echo "  PASS G2 merges cleanly into upstream master"; echo "G2=pass" >> "$GITHUB_ENV"
+          else
+            echo "  FAIL G2 conflicts with upstream master"; echo "G2=fail" >> "$GITHUB_ENV"
+          fi
+      - name: Build the test image (ubuntu 26.04 = glibc 2.43, Node 24 sha256-verified)
+        run: |
+          docker build -q -t gates:2604 - <<'DOCKERFILE'
+          FROM ubuntu:26.04
+          RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates xz-utils git >/dev/null \
+           && V=v24.22.3 F=node-v24.22.3-linux-x64.tar.xz \
+           && curl -fsSLO https://nodejs.org/dist/$V/$F \
+           && curl -fsSL https://nodejs.org/dist/$V/SHASUMS256.txt | grep " $F\$" | sha256sum -c - \
+           && tar -xJf $F -C /usr/local --strip-components=1 && rm $F && rm -r /var/lib/apt/lists
+          DOCKERFILE
+      - name: npm ci (with network)
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/work:/w" gates:2604 \
+            sh -c 'cd /w/branch && npm ci --no-audit --no-fund && cd /w/master && npm ci --no-audit --no-fund'
+      - name: Gates G3-G6 (--network none)
+        id: gates
+        continue-on-error: true
+        run: |
+          docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD/work:/w" -v "$PWD/gates:/g:ro" gates:2604 \
+            bash /g/pr-gates.sh /w/branch /w/master /w/out
+      - name: Verdict (expected ${{ matrix.expect }})
+        run: |
+          got=pass
+          [ "${{ steps.gates.outcome }}" = success ] && [ "$G2" = pass ] || got=fail
+          echo "gates: ${{ steps.gates.outcome }}, G2: $G2 -> $got (expected ${{ matrix.expect }})"
+          [ "$got" = "${{ matrix.expect }}" ]
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.expect }}
+          path: work/out/
+          if-no-files-found: ignore
