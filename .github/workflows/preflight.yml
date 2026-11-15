@@ -17,7 +17,7 @@ jobs:
       matrix:
         # The fixed PR branch must be green; the as-submitted commit must fail (proves the gates bite).
         include:
-          - ref: i18n-framework
+          - ref: i18n-framework-next
             expect: pass
           - ref: preflight-pr11-as-submitted
             expect: fail

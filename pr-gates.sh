@@ -29,7 +29,7 @@ fi
 # G4 check + full suite
 (cd "$B" && npm run check >"$O/check.log" 2>&1) && pass "G4 npm run check" || { fail "G4 npm run check"; tail -20 "$O/check.log"; }
 (cd "$B" && TMPDIR="$T" npx vitest run >"$O/test.log" 2>&1) \
-	&& pass "G4 full suite: $(grep -E '^ +Tests ' "$O/test.log" | xargs)" \
+	&& pass "G4 full suite: $(sed 's/\x1b\[[0-9;]*m//g' "$O/test.log" | grep -E '^ +Tests ' | xargs)" \
 	|| { fail "G4 test suite"; sed 's/\x1b\[[0-9;]*m//g' "$O/test.log" | grep -E ' FAIL |×' | head -20; }
 
 # G5 mutations: the i18n tests must FAIL on each
