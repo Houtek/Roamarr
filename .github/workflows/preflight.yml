@@ -18,9 +18,9 @@ jobs:
         # The fixed PR branch must be green; the as-submitted commit must fail (proves the gates bite).
         # `mut` names the G5 mutation set in mutations/ for that branch.
         include:
-          - ref: notice-contrast
+          - ref: theme-scheme
             expect: pass
-            mut: notice-contrast.sh
+            mut: theme-scheme.sh
     steps:
       - name: Check out the gate scripts
         uses: actions/checkout@v4
