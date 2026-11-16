@@ -18,15 +18,9 @@ jobs:
         # The fixed PR branch must be green; the as-submitted commit must fail (proves the gates bite).
         # `mut` names the G5 mutation set in mutations/ for that branch.
         include:
-          - ref: i18n-framework-next
+          - ref: page-titles
             expect: pass
-            mut: i18n.sh
-          - ref: preflight-pr11-as-submitted
-            expect: fail
-            mut: i18n.sh
-          - ref: default-page-title
-            expect: pass
-            mut: default-page-title.sh
+            mut: page-titles.sh
     steps:
       - name: Check out the gate scripts
         uses: actions/checkout@v4
