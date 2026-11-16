@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pr-gates.sh: offline gates G3-G6 of pr-preflight.sh, for a CI container started with
 # `--network none`. Same checks, no sudo/netns needed (the container has no network).
-#   pr-gates.sh <branch-dir> <master-dir> <out-dir>
+#   pr-gates.sh <branch-dir> <master-dir> <out-dir> <mutations-file>
 # Both dirs already have node_modules (npm ci ran in a networked container before).
 set -uo pipefail
 B=$1; M=$2; O=$3
@@ -32,18 +32,21 @@ fi
 	&& pass "G4 full suite: $(sed 's/\x1b\[[0-9;]*m//g' "$O/test.log" | grep -E '^ +Tests ' | xargs)" \
 	|| { fail "G4 test suite"; sed 's/\x1b\[[0-9;]*m//g' "$O/test.log" | grep -E ' FAIL |×' | head -20; }
 
-# G5 mutations: the i18n tests must FAIL on each
+# G5 mutations: the branch's new tests must FAIL on each mutation. The mutations are per
+# branch, in mutations/<name>.sh (4th argument); each file sets MUT_FILES (files a mutation
+# may touch, restored after each), MUT_TESTS (test files to run), optional MUT_PREP (command
+# run after mutating, e.g. a code generator), and calls `mutate <label> <shell command>`.
 mutate() {
-	(cd "$B" && git checkout -q -- project.inlang/settings.json messages/en.json && sh -c "$2" \
-		&& npx paraglide-js compile --project ./project.inlang >/dev/null 2>&1; \
-		TMPDIR="$T" npx vitest run src/lib/i18n-catalog.test.ts src/routes/login/login-page.test.ts >"$O/mustfail-$1.log" 2>&1)
+	(cd "$B" && git checkout -q -- $MUT_FILES && sh -c "$2" \
+		&& { [ -z "${MUT_PREP:-}" ] || sh -c "$MUT_PREP" >/dev/null 2>&1; }; \
+		TMPDIR="$T" npx vitest run $MUT_TESTS >"$O/mustfail-$1.log" 2>&1)
 	local rc=$?
-	(cd "$B" && git checkout -q -- project.inlang/settings.json messages/en.json)
-	if [ $rc -ne 0 ] && grep -q 'FAIL' "$O/mustfail-$1.log"; then pass "G5 i18n tests fail on mutation: $1"
-	else fail "G5 i18n tests still PASS on mutation: $1"; fi
+	(cd "$B" && git checkout -q -- $MUT_FILES)
+	if [ $rc -ne 0 ] && grep -q 'FAIL' "$O/mustfail-$1.log"; then pass "G5 new tests fail on mutation: $1"
+	else fail "G5 new tests still PASS on mutation: $1"; fi
 }
-mutate catalog-gone "sed -i 's#\"modules\": \\[[^]]*\\]#\"modules\": [\"./node_modules/@inlang/does-not-exist/index.js\"]#' project.inlang/settings.json"
-mutate one-message-blank "sed -i 's#\"login_title\": \"[^\"]*\"#\"login_title\": \"\"#' messages/en.json && grep -q '\"login_title\": \"\"' messages/en.json"
+# shellcheck source=/dev/null  # per-branch file, path given at run time
+if [ -n "${4:-}" ]; then . "$4"; else fail "G5 no mutations file given"; fi
 
 # G6 docs drift (generated files excluded)
 drift=0

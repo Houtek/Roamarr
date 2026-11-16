@@ -16,11 +16,17 @@ jobs:
       fail-fast: false
       matrix:
         # The fixed PR branch must be green; the as-submitted commit must fail (proves the gates bite).
+        # `mut` names the G5 mutation set in mutations/ for that branch.
         include:
           - ref: i18n-framework-next
             expect: pass
+            mut: i18n.sh
           - ref: preflight-pr11-as-submitted
             expect: fail
+            mut: i18n.sh
+          - ref: default-page-title
+            expect: pass
+            mut: default-page-title.sh
     steps:
       - name: Check out the gate scripts
         uses: actions/checkout@v4
@@ -62,7 +68,7 @@ jobs:
         run: |
           docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/tmp \
             -v "$PWD/work:/w" -v "$PWD/gates:/g:ro" gates:2604 \
-            bash /g/pr-gates.sh /w/branch /w/master /w/out
+            bash /g/pr-gates.sh /w/branch /w/master /w/out /g/mutations/${{ matrix.mut }}
       - name: Verdict (expected ${{ matrix.expect }})
         run: |
           got=pass
@@ -73,6 +79,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-${{ matrix.expect }}
+          name: logs-${{ matrix.ref }}
           path: work/out/
           if-no-files-found: ignore
